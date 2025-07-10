@@ -2,7 +2,6 @@ import streamlit as st
 from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
 import tempfile
 from openai import AzureOpenAI
-from elevenlabs import generate, play, set_api_key
 import os
 from dotenv import load_dotenv
 import azure.cognitiveservices.speech as speechsdk
