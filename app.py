@@ -5,13 +5,13 @@ from openai import AzureOpenAI
 import os
 from dotenv import load_dotenv
 import azure.cognitiveservices.speech as speechsdk
-from elevenlabs import generate, set_api_key
+from elevenlabs import ElevenLabs, VoiceSettings
 
 # Load environment variables
 load_dotenv()
 
 # Set ElevenLabs API Key
-set_api_key(st.secrets["ELEVENLABS_API_KEY"])
+voice_id = st.secrets["ELEVENLABS_VOICE_ID"]
 
 # Azure OpenAI config
 client = AzureOpenAI(
@@ -81,7 +81,13 @@ if ctx.audio_processor and ctx.audio_processor.frames:
     st.write(reply)
 
     # Synthesize with ElevenLabs
-    audio_stream = generate(text=reply, voice=st.secrets["ELEVENLABS_VOICE_ID"], model="eleven_multilingual_v1")
+    elevenlabs_client = ElevenLabs(api_key=st.secrets["ELEVENLABS_API_KEY"])
+    audio_stream = elevenlabs_client.generate(
+        text=reply,
+        voice=st.secrets["ELEVENLABS_VOICE_ID"],
+        model="eleven_multilingual_v1",
+        voice_settings=VoiceSettings(stability=0.5, similarity_boost=0.8)
+    )
     audio_bytes = b"".join(audio_stream)
     st.audio(audio_bytes, format="audio/mp3")
 
