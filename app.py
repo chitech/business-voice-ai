@@ -5,7 +5,8 @@ from openai import AzureOpenAI
 import os
 from dotenv import load_dotenv
 import azure.cognitiveservices.speech as speechsdk
-from elevenlabs import ElevenLabs, VoiceSettings
+from elevenlabs.client import ElevenLabs
+from elevenlabs import VoiceSettings
 
 # Load environment variables
 load_dotenv()
