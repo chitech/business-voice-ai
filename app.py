@@ -7,16 +7,16 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import re 
+import json
 
 load_dotenv()
 
 # Azure keys
-speech_key = os.getenv("AZURE_SPEECH_KEY")
-speech_region = os.getenv("AZURE_SPEECH_REGION")
-
-openai_key = os.getenv("AZURE_OPENAI_KEY")
-openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-deployment_name = os.getenv("AZURE_DEPLOYMENT_NAME")
+speech_key = st.secrets["AZURE_SPEECH_KEY"]
+speech_region = st.secrets["AZURE_SPEECH_REGION"]
+openai_key = st.secrets["AZURE_OPENAI_KEY"]
+openai_endpoint = st.secrets["AZURE_OPENAI_ENDPOINT"]
+deployment_name = st.secrets["AZURE_DEPLOYMENT_NAME"]
 
 # OpenAI client
 client = AzureOpenAI(
@@ -49,7 +49,8 @@ st.markdown("💼 Example: Try asking 'What product sold best last quarter?'")
 
 # Google Sheets setup
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+creds_dict = st.secrets["gcp_service_account"]
+creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
 client_gsheets = gspread.authorize(creds)
 
 # Data loading

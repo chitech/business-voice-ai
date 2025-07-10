@@ -7,3 +7,5 @@ pandas
 gspread
 oauth2client
 pyarrow
+json
+re
