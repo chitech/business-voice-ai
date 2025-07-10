@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.env
+.env
+credentials.json
+
+# macOS
+.DS_Store
+
+# Streamlit logs
+.streamlit/config.toml
+.streamlit/secrets.toml
+
+# Virtual environments
+venv/
+env/
+consultenv/
+*.log
+
+# VS Code
+.vscode/
