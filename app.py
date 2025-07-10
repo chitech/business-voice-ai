@@ -81,7 +81,7 @@ if ctx.audio_processor and ctx.audio_processor.frames:
     st.write(reply)
 
     # Synthesize with ElevenLabs
-    audio_stream = generate(text=reply, voice="Caribbean Queen", model="eleven_multilingual_v1")
+    audio_stream = generate(text=reply, voice="eLF6aWV8hzNWhbPF4oJY", model="eleven_multilingual_v1")
     play(audio_stream)
 
     # Reset the frames
