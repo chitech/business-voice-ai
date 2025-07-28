@@ -1,96 +1,112 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
-import tempfile
-from openai import AzureOpenAI
 import os
 from dotenv import load_dotenv
 import azure.cognitiveservices.speech as speechsdk
-from elevenlabs.client import ElevenLabs
-from elevenlabs import VoiceSettings
+from openai import AzureOpenAI
+import pandas as pd
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import re 
+import json
 
-# Load environment variables
 load_dotenv()
 
-# Set ElevenLabs API Key
-voice_id = st.secrets["ELEVENLABS_VOICE_ID"]
+# Azure keys
+speech_key = st.secrets["AZURE_SPEECH_KEY"]
+speech_region = st.secrets["AZURE_SPEECH_REGION"]
+openai_key = st.secrets["AZURE_OPENAI_KEY"]
+openai_endpoint = st.secrets["AZURE_OPENAI_ENDPOINT"]
+deployment_name = st.secrets["AZURE_DEPLOYMENT_NAME"]
 
-# Azure OpenAI config
+# OpenAI client
 client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_KEY"),
+    api_key=openai_key,
     api_version="2025-01-01-preview",
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+    azure_endpoint=openai_endpoint
 )
 
-deployment_name = os.getenv("AZURE_DEPLOYMENT_NAME")
-
-# UI Layout
 st.set_page_config(page_title="Voice AI for Business", layout="centered")
-st.title("🧠 Voice AI for Small Business")
-st.info("Use your microphone to ask a question. We'll respond with a smart answer and a realistic voice.")
+# Custom business-friendly header
+st.markdown("""
+    <div style='text-align: center; padding-bottom: 10px;'>
+        <h1 style='color: #2c3e50;'>🧠 Business Voice AI</h1>
+        <h4 style='color: #7f8c8d;'>Ask your question and get instant, voice-powered business insights.</h4>
+    </div>
+""", unsafe_allow_html=True)
 
-# Audio Processor
-class AudioProcessor(AudioProcessorBase):
-    def __init__(self):
-        self.frames = []
+# Hide Streamlit's default header/footer
+hide_st_style = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    </style>
+"""
+st.markdown(hide_st_style, unsafe_allow_html=True)
 
-    def recv(self, frame):
-        self.frames.append(frame.to_ndarray().tobytes())
-        return frame
+# Helpful example prompt
+st.markdown("💼 Example: Try asking 'What product sold best last quarter?'")
 
-# Stream audio
-ctx = webrtc_streamer(key="speech", audio_processor_factory=AudioProcessor, media_stream_constraints={"audio": True, "video": False})
+# Google Sheets setup (optional)
+try:
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds_dict = st.secrets["gcp_service_account"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
+    client_gsheets = gspread.authorize(creds)
+    
+    # Data loading
+    sheet = client_gsheets.open("BusinessProducts").get_worksheet(1)
+    records = sheet.get_all_records()
+    df = pd.DataFrame(records)
+    st.success("✅ Connected to Google Sheets")
+except Exception as e:
+    st.warning("⚠️ Google Sheets not configured. Using sample data.")
+    # Sample data if Google Sheets is not available
+    df = pd.DataFrame({
+        'Product': ['Widget A', 'Widget B', 'Widget C'],
+        'Sales': [100, 150, 200],
+        'Revenue': [1000, 1500, 2000]
+    })
 
-# Handle transcription & response
-if ctx.state.playing:
-    st.info("Recording... speak now")
+# Streamlit layout: columns for voice and data
+col1, col2 = st.columns([1, 2])
+with col1:
+    if st.button("🎤 Click to Speak"):
+        audio_config = speechsdk.AudioConfig(use_default_microphone=True)
+        speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
+        recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
 
-if ctx.audio_processor and ctx.audio_processor.frames:
-    st.success("Processing your voice...")
-    audio_bytes = b"".join(ctx.audio_processor.frames)
+        with st.spinner("🟢 Listening..."):
+            result = recognizer.recognize_once()
 
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-        f.write(audio_bytes)
-        audio_path = f.name
+        if result.reason == speechsdk.ResultReason.RecognizedSpeech:
+            st.subheader("🔊 You said:")
+            st.write(result.text)
 
-    # Transcribe using Azure Speech
-    speech_key = os.getenv("AZURE_SPEECH_KEY")
-    speech_region = os.getenv("AZURE_SPEECH_REGION")
-
-    speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
-    audio_config = speechsdk.audio.AudioConfig(filename=audio_path)
-
-    speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
-    result = speech_recognizer.recognize_once()
-
-    if result.reason == speechsdk.ResultReason.RecognizedSpeech:
-        transcript = result.text
-    else:
-        transcript = "Sorry, I couldn't understand the audio."
-
-    st.subheader("🔊 You said:")
-    st.write(transcript)
-
-    # Generate response using Azure OpenAI
-    prompt = f"You are a helpful assistant for small business owners. Respond briefly and clearly. Question: {transcript}"
-    response = client.chat.completions.create(
-        model=deployment_name,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.7
-    )
-    reply = response.choices[0].message.content
-    st.subheader("🤖 AI Response:")
-    st.write(reply)
-
-    # Synthesize with ElevenLabs
-    elevenlabs_client = ElevenLabs(api_key=st.secrets["ELEVENLABS_API_KEY"])
-    audio_stream = elevenlabs_client.generate(
-        text=reply,
-        voice=st.secrets["ELEVENLABS_VOICE_ID"],
-        model="eleven_multilingual_v1",
-        voice_settings=VoiceSettings(stability=0.5, similarity_boost=0.8)
-    )
-    audio_bytes = b"".join(audio_stream)
-    st.audio(audio_bytes, format="audio/mp3")
-
-    # Reset the frames
-    ctx.audio_processor.frames.clear()
+            prompt = f"You are a smart voice assistant for small business owners. Here is your customer data: {df.to_markdown(index=False)}. Respond with a short voice-friendly answer first, then provide extra details after if needed. Here is the query: {result.text}"
+            try:
+                response = client.chat.completions.create(
+                    model=deployment_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7
+                )
+                st.markdown("### 🤖 AI Response:")
+                st.markdown(f"""
+                <div style='padding: 1em; background-color: #f9f9f9; border-left: 5px solid #4CAF50;'>
+                    {response.choices[0].message.content}
+                </div>
+                """, unsafe_allow_html=True)
+                speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
+                synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config)
+                response_text = response.choices[0].message.content
+                # Remove markdown syntax (e.g. **bold**, *italic*)
+                clean_text = re.sub(r'\*{1,2}(.+?)\*{1,2}', r'\1', response_text)
+                synthesizer.speak_text_async(clean_text)
+                
+            except Exception as e:
+                st.error(f"Error generating response: {e}")
+        else:
+            st.warning("Didn't catch that. Please try again.")
+with col2:
+    st.subheader("📊 Sample Product Data")
+    st.dataframe(df)
