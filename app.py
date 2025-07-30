@@ -63,6 +63,11 @@ class AudioProcessor(AudioProcessorBase):
     def recv(self, frame):
         self.frames.append(frame.to_ndarray().tobytes())
         return frame
+    
+    def recv_queued(self, frame):
+        # Alternative method to handle audio frames more reliably
+        self.frames.append(frame.to_ndarray().tobytes())
+        return frame
 
 # Stream audio
 ctx = webrtc_streamer(key="speech", audio_processor_factory=AudioProcessor, media_stream_constraints={"audio": True, "video": False})
@@ -104,7 +109,13 @@ if ctx.audio_processor and ctx.audio_processor.frames:
     st.write(transcript)
 
     # Generate response using Azure OpenAI with business data
-    prompt = f"You are a smart voice assistant for small business owners. Here is your customer data: {df.to_markdown(index=False)}. Respond with a short voice-friendly answer first, then provide extra details after if needed. Here is the query: {transcript}"
+    try:
+        data_summary = df.to_markdown(index=False)
+    except ImportError:
+        # Fallback if tabulate is not available
+        data_summary = df.to_string(index=False)
+    
+    prompt = f"You are a smart voice assistant for small business owners. Here is your customer data: {data_summary}. Respond with a short voice-friendly answer first, then provide extra details after if needed. Here is the query: {transcript}"
     response = client.chat.completions.create(
         model=deployment_name,
         messages=[{"role": "user", "content": prompt}],
