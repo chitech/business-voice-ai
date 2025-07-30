@@ -6,4 +6,7 @@ pandas
 gspread
 oauth2client
 pyarrow
+json
+re
 tabulate
+streamlit-audio-recorder

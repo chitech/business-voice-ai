@@ -1,14 +1,19 @@
 import streamlit as st
+import tempfile
+from openai import AzureOpenAI
 import os
 from dotenv import load_dotenv
 import azure.cognitiveservices.speech as speechsdk
-from openai import AzureOpenAI
 import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import re 
+import re
 import json
+import base64
+import io
+from streamlit_audio_recorder import audio_recorder
 
+# Load environment variables
 load_dotenv()
 
 # Azure keys
@@ -71,42 +76,77 @@ except Exception as e:
 # Streamlit layout: columns for voice and data
 col1, col2 = st.columns([1, 2])
 with col1:
-    if st.button("🎤 Click to Speak"):
-        audio_config = speechsdk.AudioConfig(use_default_microphone=True)
-        speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
-        recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
-
-        with st.spinner("🟢 Listening..."):
-            result = recognizer.recognize_once()
-
-        if result.reason == speechsdk.ResultReason.RecognizedSpeech:
-            st.subheader("🔊 You said:")
-            st.write(result.text)
-
-            prompt = f"You are a smart voice assistant for small business owners. Here is your customer data: {df.to_markdown(index=False)}. Respond with a short voice-friendly answer first, then provide extra details after if needed. Here is the query: {result.text}"
-            try:
-                response = client.chat.completions.create(
-                    model=deployment_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.7
-                )
-                st.markdown("### 🤖 AI Response:")
-                st.markdown(f"""
-                <div style='padding: 1em; background-color: #f9f9f9; border-left: 5px solid #4CAF50;'>
-                    {response.choices[0].message.content}
-                </div>
-                """, unsafe_allow_html=True)
-                speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
-                synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config)
-                response_text = response.choices[0].message.content
-                # Remove markdown syntax (e.g. **bold**, *italic*)
-                clean_text = re.sub(r'\*{1,2}(.+?)\*{1,2}', r'\1', response_text)
-                synthesizer.speak_text_async(clean_text)
+    st.subheader("🎤 Voice Input")
+    
+    # Web-based audio recorder
+    audio_bytes = audio_recorder(
+        text="Click to record your question",
+        recording_color="#e74c3c",
+        neutral_color="#6c757d",
+        icon_name="microphone",
+        icon_size="2x",
+    )
+    
+    if audio_bytes:
+        st.audio(audio_bytes, format="audio/wav")
+        
+        # Save audio to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+            tmp_file.write(audio_bytes)
+            temp_audio_path = tmp_file.name
+        
+        try:
+            # Azure Speech recognition from file
+            audio_config = speechsdk.AudioConfig(filename=temp_audio_path)
+            speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
+            recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
+            
+            with st.spinner("🟢 Processing your speech..."):
+                result = recognizer.recognize_once()
+            
+            # Clean up temp file
+            os.unlink(temp_audio_path)
+            
+            if result.reason == speechsdk.ResultReason.RecognizedSpeech:
+                st.subheader("🔊 You said:")
+                st.write(result.text)
                 
-            except Exception as e:
-                st.error(f"Error generating response: {e}")
-        else:
-            st.warning("Didn't catch that. Please try again.")
+                prompt = f"You are a smart voice assistant for small business owners. Here is your customer data: {df.to_markdown(index=False)}. Respond with a short voice-friendly answer first, then provide extra details after if needed. Here is the query: {result.text}"
+                try:
+                    response = client.chat.completions.create(
+                        model=deployment_name,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.7
+                    )
+                    st.markdown("### 🤖 AI Response:")
+                    st.markdown(f"""
+                    <div style='padding: 1em; background-color: #f9f9f9; border-left: 5px solid #4CAF50;'>
+                        {response.choices[0].message.content}
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Text-to-speech response
+                    speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
+                    synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config)
+                    response_text = response.choices[0].message.content
+                    # Remove markdown syntax (e.g. **bold**, *italic*)
+                    clean_text = re.sub(r'\*{1,2}(.+?)\*{1,2}', r'\1', response_text)
+                    synthesizer.speak_text_async(clean_text)
+                    
+                except Exception as e:
+                    st.error(f"Error generating response: {e}")
+            else:
+                st.warning("Could not recognize speech. Please try again.")
+                
+        except Exception as e:
+            st.error(f"Error processing audio: {e}")
+            # Clean up temp file if it exists
+            if 'temp_audio_path' in locals():
+                try:
+                    os.unlink(temp_audio_path)
+                except:
+                    pass
+
 with col2:
     st.subheader("📊 Sample Product Data")
     st.dataframe(df)
