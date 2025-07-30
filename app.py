@@ -6,6 +6,11 @@ from elevenlabs import generate, play, set_api_key
 import os
 from dotenv import load_dotenv
 import azure.cognitiveservices.speech as speechsdk
+import pandas as pd
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import re
+import json
 
 # Load environment variables
 load_dotenv()
@@ -26,6 +31,27 @@ deployment_name = st.secrets["AZURE_DEPLOYMENT_NAME"]
 st.set_page_config(page_title="Voice AI for Business", layout="centered")
 st.title("🧠 Voice AI for Small Business")
 st.info("Use your microphone to ask a question. We'll respond with a smart answer and a realistic voice.")
+
+# Google Sheets setup (optional)
+try:
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds_dict = st.secrets["gcp_service_account"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
+    client_gsheets = gspread.authorize(creds)
+    
+    # Data loading
+    sheet = client_gsheets.open("BusinessProducts").get_worksheet(1)
+    records = sheet.get_all_records()
+    df = pd.DataFrame(records)
+    st.success("✅ Connected to Google Sheets")
+except Exception as e:
+    st.warning("⚠️ Google Sheets not configured. Using sample data.")
+    # Sample data if Google Sheets is not available
+    df = pd.DataFrame({
+        'Product': ['Widget A', 'Widget B', 'Widget C'],
+        'Sales': [100, 150, 200],
+        'Revenue': [1000, 1500, 2000]
+    })
 
 # Audio Processor
 class AudioProcessor(AudioProcessorBase):
@@ -69,8 +95,8 @@ if ctx.audio_processor and ctx.audio_processor.frames:
     st.subheader("🔊 You said:")
     st.write(transcript)
 
-    # Generate response using Azure OpenAI
-    prompt = f"You are a helpful assistant for small business owners. Respond briefly and clearly. Question: {transcript}"
+    # Generate response using Azure OpenAI with business data
+    prompt = f"You are a smart voice assistant for small business owners. Here is your customer data: {df.to_markdown(index=False)}. Respond with a short voice-friendly answer first, then provide extra details after if needed. Here is the query: {transcript}"
     response = client.chat.completions.create(
         model=deployment_name,
         messages=[{"role": "user", "content": prompt}],
@@ -81,8 +107,12 @@ if ctx.audio_processor and ctx.audio_processor.frames:
     st.write(reply)
 
     # Synthesize with ElevenLabs
-    audio_stream = generate(text=reply, voice="Caribbean Queen", model="eleven_multilingual_v1")
+    audio_stream = generate(text=reply, voice="Rachel", model="eleven_multilingual_v1")
     play(audio_stream)
 
     # Reset the frames
     ctx.audio_processor.frames.clear()
+
+# Display business data
+st.subheader("📊 Sample Product Data")
+st.dataframe(df)
