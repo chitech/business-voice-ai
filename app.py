@@ -64,40 +64,17 @@ class AudioProcessor(AudioProcessorBase):
     def recv(self, frame):
         self.frames.append(frame.to_ndarray().tobytes())
         return frame
-    
-    def recv_queued(self, frame):
-        # Alternative method to handle audio frames more reliably
-        self.frames.append(frame.to_ndarray().tobytes())
-        return frame
-
-# Initialize session state for tracking processing
-if 'processing_done' not in st.session_state:
-    st.session_state.processing_done = False
-if 'last_audio_length' not in st.session_state:
-    st.session_state.last_audio_length = 0
 
 # Stream audio
 ctx = webrtc_streamer(key="speech", audio_processor_factory=AudioProcessor, media_stream_constraints={"audio": True, "video": False})
 
-# Add manual processing button
-if ctx.audio_processor and ctx.audio_processor.frames and not st.session_state.processing_done:
-    if st.button("🎤 Process My Voice", type="primary"):
-        st.session_state.manual_process = True
-
 # Handle transcription & response
 if ctx.state.playing:
     st.info("🎤 Recording... speak now")
-    # Reset processing flag when recording starts
-    st.session_state.processing_done = False
 
-# Check if we have new audio data to process
 if ctx.audio_processor and ctx.audio_processor.frames:
-    current_audio_length = len(ctx.audio_processor.frames)
-    
-    # Only process if we have new audio data and haven't processed it yet, or if manually triggered
-    if (current_audio_length > st.session_state.last_audio_length and not st.session_state.processing_done) or st.session_state.get('manual_process', False):
-        st.success("🔄 Processing your voice...")
-        audio_bytes = b"".join(ctx.audio_processor.frames)
+    st.success("🔄 Processing your voice...")
+    audio_bytes = b"".join(ctx.audio_processor.frames)
 
     # Convert raw audio bytes to proper WAV format
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
@@ -179,13 +156,8 @@ Please respond:"""
             st.error(f"❌ Voice generation failed: {str(e)}")
             st.info("💡 You can still read the text response above.")
 
-        # Mark processing as complete and update audio length
-        st.session_state.processing_done = True
-        st.session_state.last_audio_length = current_audio_length
-        st.session_state.manual_process = False  # Reset manual process flag
-        
-        # Reset the frames
-        ctx.audio_processor.frames.clear()
+    # Reset the frames
+    ctx.audio_processor.frames.clear()
 
 # Display business data
 st.subheader("📊 Sample Product Data")
