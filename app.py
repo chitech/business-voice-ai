@@ -2,7 +2,6 @@ import streamlit as st
 from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
 import tempfile
 from openai import AzureOpenAI
-import elevenlabs
 import os
 from dotenv import load_dotenv
 import azure.cognitiveservices.speech as speechsdk
@@ -11,23 +10,23 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import re
 import json
-import wave
-import numpy as np
 
 # Load environment variables
 load_dotenv()
 
-# Set ElevenLabs API Key
-elevenlabs.set_api_key(st.secrets["ELEVENLABS_API_KEY"])
+# Azure keys from Streamlit secrets
+speech_key = st.secrets["AZURE_SPEECH_KEY"]
+speech_region = st.secrets["AZURE_SPEECH_REGION"]
+openai_key = st.secrets["AZURE_OPENAI_KEY"]
+openai_endpoint = st.secrets["AZURE_OPENAI_ENDPOINT"]
+deployment_name = st.secrets["AZURE_DEPLOYMENT_NAME"]
 
 # Azure OpenAI config
 client = AzureOpenAI(
-    api_key=st.secrets["AZURE_OPENAI_KEY"],
+    api_key=openai_key,
     api_version="2025-01-01-preview",
-    azure_endpoint=st.secrets["AZURE_OPENAI_ENDPOINT"]
+    azure_endpoint=openai_endpoint
 )
-
-deployment_name = st.secrets["AZURE_DEPLOYMENT_NAME"]
 
 # UI Layout
 st.set_page_config(page_title="Voice AI for Business", layout="centered")
@@ -68,24 +67,19 @@ class AudioProcessor(AudioProcessorBase):
 # Stream audio
 ctx = webrtc_streamer(key="speech", audio_processor_factory=AudioProcessor, media_stream_constraints={"audio": True, "video": False})
 
-# Handle transcription & response - process immediately when audio is available
+# Handle transcription & response
+if ctx.state.playing:
+    st.info("Recording... speak now")
+
 if ctx.audio_processor and ctx.audio_processor.frames:
+    st.success("Processing your voice...")
     audio_bytes = b"".join(ctx.audio_processor.frames)
 
-    # Convert raw audio bytes to proper WAV format
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-        # Create a proper WAV file
-        with wave.open(f.name, 'wb') as wav_file:
-            wav_file.setnchannels(1)  # Mono
-            wav_file.setsampwidth(2)  # 16-bit
-            wav_file.setframerate(16000)  # 16kHz sample rate
-            wav_file.writeframes(audio_bytes)
+        f.write(audio_bytes)
         audio_path = f.name
 
     # Transcribe using Azure Speech
-    speech_key = st.secrets["AZURE_SPEECH_KEY"]
-    speech_region = st.secrets["AZURE_SPEECH_REGION"]
-
     speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
     audio_config = speechsdk.audio.AudioConfig(filename=audio_path)
 
@@ -99,36 +93,9 @@ if ctx.audio_processor and ctx.audio_processor.frames:
 
     st.subheader("🔊 You said:")
     st.write(transcript)
-    
-    # Show what data is being analyzed
-    st.subheader("📊 Data being analyzed:")
-    st.write(f"Using {'Google Sheets' if 'gcp_service_account' in st.secrets else 'sample'} data")
-    st.dataframe(df)
-    
+
     # Generate response using Azure OpenAI with business data
-    try:
-        data_summary = df.to_markdown(index=False)
-    except ImportError:
-        # Fallback if tabulate is not available
-        data_summary = df.to_string(index=False)
-    
-    # Create a more specific prompt for business analysis
-    prompt = f"""You are a smart business analyst assistant. Analyze the following business data and provide insights:
-
-Business Data:
-{data_summary}
-
-User Question: {transcript}
-
-Instructions:
-1. If the user asks about sales, revenue, products, or business performance, analyze the data and provide specific insights
-2. If the user asks about trends, compare the data points and identify patterns
-3. If the user asks for recommendations, suggest improvements based on the data
-4. If the question is not related to the business data, provide a helpful general business response
-5. Keep your response conversational and voice-friendly (under 2 sentences for the main answer)
-6. If using sample data (Widget A, B, C), mention that real business data would provide better insights
-
-Please respond:"""
+    prompt = f"You are a smart voice assistant for small business owners. Here is your customer data: {df.to_markdown(index=False)}. Respond with a short voice-friendly answer first, then provide extra details after if needed. Here is the query: {transcript}"
     response = client.chat.completions.create(
         model=deployment_name,
         messages=[{"role": "user", "content": prompt}],
@@ -138,12 +105,12 @@ Please respond:"""
     st.subheader("🤖 AI Response:")
     st.write(reply)
 
-    # Synthesize with ElevenLabs
-    try:
-        audio_stream = elevenlabs.generate(text=reply, voice="Rachel", model="eleven_multilingual_v1")
-        elevenlabs.play(audio_stream)
-    except Exception as e:
-        st.error(f"❌ Voice generation failed: {str(e)}")
+    # Synthesize with Azure Speech TTS
+    speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
+    synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config)
+    # Remove markdown syntax (e.g. **bold**, *italic*)
+    clean_text = re.sub(r'\*{1,2}(.+?)\*{1,2}', r'\1', reply)
+    synthesizer.speak_text_async(clean_text)
 
     # Reset the frames
     ctx.audio_processor.frames.clear()
