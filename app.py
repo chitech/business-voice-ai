@@ -1,46 +1,63 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
-import tempfile
-from openai import AzureOpenAI
-import elevenlabs
 import os
 from dotenv import load_dotenv
 import azure.cognitiveservices.speech as speechsdk
+from openai import AzureOpenAI
 import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import re
+import re 
 import json
-import wave
-import numpy as np
+import elevenlabs
 
-# Load environment variables
 load_dotenv()
 
 # Set ElevenLabs API Key
 elevenlabs.set_api_key(st.secrets["ELEVENLABS_API_KEY"])
 
-# Azure OpenAI config
-client = AzureOpenAI(
-    api_key=st.secrets["AZURE_OPENAI_KEY"],
-    api_version="2025-01-01-preview",
-    azure_endpoint=st.secrets["AZURE_OPENAI_ENDPOINT"]
-)
-
+# Azure keys
+speech_key = st.secrets["AZURE_SPEECH_KEY"]
+speech_region = st.secrets["AZURE_SPEECH_REGION"]
+openai_key = st.secrets["AZURE_OPENAI_KEY"]
+openai_endpoint = st.secrets["AZURE_OPENAI_ENDPOINT"]
 deployment_name = st.secrets["AZURE_DEPLOYMENT_NAME"]
 
-# UI Layout
-st.set_page_config(page_title="Voice AI for Business", layout="centered")
-st.title("🧠 Voice AI for Small Business")
-st.info("Use your microphone to ask a question. We'll respond with a smart answer and a realistic voice.")
+# OpenAI client
+client = AzureOpenAI(
+    api_key=openai_key,
+    api_version="2025-01-01-preview",
+    azure_endpoint=openai_endpoint
+)
 
-# Google Sheets setup (optional)
+st.set_page_config(page_title="Voice AI for Business", layout="centered")
+# Custom business-friendly header
+st.markdown("""
+    <div style='text-align: center; padding-bottom: 10px;'>
+        <h1 style='color: #2c3e50;'>🧠 Business Voice AI</h1>
+        <h4 style='color: #7f8c8d;'>Ask your question and get instant, voice-powered business insights.</h4>
+    </div>
+""", unsafe_allow_html=True)
+
+# Hide Streamlit's default header/footer
+hide_st_style = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    </style>
+"""
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
+# Helpful example prompt
+st.markdown("💼 Example: Try asking 'What product sold best last quarter?'")
+
+# Google Sheets setup
 try:
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds_dict = st.secrets["gcp_service_account"]
     creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
     client_gsheets = gspread.authorize(creds)
-    
+
     # Data loading
     sheet = client_gsheets.open("BusinessProducts").get_worksheet(1)
     records = sheet.get_all_records()
@@ -56,69 +73,40 @@ except Exception as e:
         'Profit_Margin': [0.25, 0.20, 0.10]
     })
 
-# Audio Processor
-class AudioProcessor(AudioProcessorBase):
-    def __init__(self):
-        self.frames = []
+# Streamlit layout: columns for voice and data
+col1, col2 = st.columns([1, 2])
+with col1:
+    if st.button("🎤 Click to Speak"):
+        audio_config = speechsdk.AudioConfig(use_default_microphone=True)
+        speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
+        recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
 
-    def recv(self, frame):
-        self.frames.append(frame.to_ndarray().tobytes())
-        return frame
+        with st.spinner("🟢 Listening..."):
+            result = recognizer.recognize_once()
 
-# Stream audio
-ctx = webrtc_streamer(key="speech", audio_processor_factory=AudioProcessor, media_stream_constraints={"audio": True, "video": False})
+        if result.reason == speechsdk.ResultReason.RecognizedSpeech:
+            st.subheader("🔊 You said:")
+            st.write(result.text)
 
-# Handle transcription & response - simplified like the working version
-if ctx.audio_processor and ctx.audio_processor.frames:
-    audio_bytes = b"".join(ctx.audio_processor.frames)
+            # Show what data is being analyzed
+            st.subheader("📊 Data being analyzed:")
+            st.write(f"Using {'Google Sheets' if 'gcp_service_account' in st.secrets else 'sample'} data")
+            st.dataframe(df)
 
-    # Convert raw audio bytes to proper WAV format
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-        # Create a proper WAV file
-        with wave.open(f.name, 'wb') as wav_file:
-            wav_file.setnchannels(1)  # Mono
-            wav_file.setsampwidth(2)  # 16-bit
-            wav_file.setframerate(16000)  # 16kHz sample rate
-            wav_file.writeframes(audio_bytes)
-        audio_path = f.name
-
-    # Transcribe using Azure Speech
-    speech_key = st.secrets["AZURE_SPEECH_KEY"]
-    speech_region = st.secrets["AZURE_SPEECH_REGION"]
-
-    speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
-    audio_config = speechsdk.audio.AudioConfig(filename=audio_path)
-
-    speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
-    result = speech_recognizer.recognize_once()
-
-    if result.reason == speechsdk.ResultReason.RecognizedSpeech:
-        transcript = result.text
-    else:
-        transcript = "Sorry, I couldn't understand the audio."
-
-    st.subheader("🔊 You said:")
-    st.write(transcript)
-    
-    # Show what data is being analyzed
-    st.subheader("📊 Data being analyzed:")
-    st.write(f"Using {'Google Sheets' if 'gcp_service_account' in st.secrets else 'sample'} data")
-    st.dataframe(df)
-    
-    # Generate response using Azure OpenAI with business data
-    try:
-        data_summary = df.to_markdown(index=False)
-    except ImportError:
-        # Fallback if tabulate is not available
-        data_summary = df.to_string(index=False)
-    
-    # Create a more specific prompt for business analysis
-    prompt = f"""You are a smart business analyst assistant. Analyze the following business data and provide insights:
+            # Generate response using Azure OpenAI with business data
+            try:
+                data_summary = df.to_markdown(index=False)
+            except ImportError:
+                # Fallback if tabulate is not available
+                data_summary = df.to_string(index=False)
+            
+            # Create a more specific prompt for business analysis
+            prompt = f"""You are a smart business analyst assistant. Analyze the following business data and provide insights:
 
 Business Data:
 {data_summary}
 
-User Question: {transcript}
+User Question: {result.text}
 
 Instructions:
 1. If the user asks about sales, revenue, products, or business performance, analyze the data and provide specific insights
@@ -129,25 +117,31 @@ Instructions:
 6. If using sample data (Widget A, B, C), mention that real business data would provide better insights
 
 Please respond:"""
-    response = client.chat.completions.create(
-        model=deployment_name,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.7
-    )
-    reply = response.choices[0].message.content
-    st.subheader("🤖 AI Response:")
-    st.write(reply)
-
-    # Synthesize with ElevenLabs
-    try:
-        audio_stream = elevenlabs.generate(text=reply, voice="Rachel", model="eleven_multilingual_v1")
-        elevenlabs.play(audio_stream)
-    except Exception as e:
-        st.error(f"❌ Voice generation failed: {str(e)}")
-
-    # Reset the frames
-    ctx.audio_processor.frames.clear()
-
-# Display business data
-st.subheader("📊 Sample Product Data")
-st.dataframe(df)
+            
+            try:
+                response = client.chat.completions.create(
+                    model=deployment_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7
+                )
+                st.markdown("### 🤖 AI Response:")
+                st.markdown(f"""
+                <div style='padding: 1em; background-color: #f9f9f9; border-left: 5px solid #4CAF50;'>
+                    {response.choices[0].message.content}
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Synthesize with ElevenLabs
+                try:
+                    audio_stream = elevenlabs.generate(text=response.choices[0].message.content, voice="Rachel", model="eleven_multilingual_v1")
+                    elevenlabs.play(audio_stream)
+                except Exception as e:
+                    st.error(f"❌ Voice generation failed: {str(e)}")
+                
+            except Exception as e:
+                st.error(f"Error generating response: {e}")
+        else:
+            st.warning("Didn't catch that. Please try again.")
+with col2:
+    st.subheader("📊 Sample Product Data")
+    st.dataframe(df)
