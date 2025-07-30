@@ -75,10 +75,10 @@ ctx = webrtc_streamer(key="speech", audio_processor_factory=AudioProcessor, medi
 
 # Handle transcription & response
 if ctx.state.playing:
-    st.info("Recording... speak now")
+    st.info("🎤 Recording... speak now")
 
 if ctx.audio_processor and ctx.audio_processor.frames:
-    st.success("Processing your voice...")
+    st.success("🔄 Processing your voice...")
     audio_bytes = b"".join(ctx.audio_processor.frames)
 
     # Convert raw audio bytes to proper WAV format
@@ -103,8 +103,10 @@ if ctx.audio_processor and ctx.audio_processor.frames:
 
     if result.reason == speechsdk.ResultReason.RecognizedSpeech:
         transcript = result.text
+        st.success("✅ Speech recognized successfully!")
     else:
         transcript = "Sorry, I couldn't understand the audio."
+        st.error("❌ Could not understand audio. Please try again.")
 
     st.subheader("🔊 You said:")
     st.write(transcript)
@@ -113,16 +115,18 @@ if ctx.audio_processor and ctx.audio_processor.frames:
     st.subheader("📊 Data being analyzed:")
     st.write(f"Using {'Google Sheets' if 'gcp_service_account' in st.secrets else 'sample'} data")
     st.dataframe(df)
-
-    # Generate response using Azure OpenAI with business data
-    try:
-        data_summary = df.to_markdown(index=False)
-    except ImportError:
-        # Fallback if tabulate is not available
-        data_summary = df.to_string(index=False)
     
-    # Create a more specific prompt for business analysis
-    prompt = f"""You are a smart business analyst assistant. Analyze the following business data and provide insights:
+    # Show processing status
+    with st.spinner("🤖 Generating AI response..."):
+        # Generate response using Azure OpenAI with business data
+        try:
+            data_summary = df.to_markdown(index=False)
+        except ImportError:
+            # Fallback if tabulate is not available
+            data_summary = df.to_string(index=False)
+        
+        # Create a more specific prompt for business analysis
+        prompt = f"""You are a smart business analyst assistant. Analyze the following business data and provide insights:
 
 Business Data:
 {data_summary}
@@ -138,18 +142,20 @@ Instructions:
 6. If using sample data (Widget A, B, C), mention that real business data would provide better insights
 
 Please respond:"""
-    response = client.chat.completions.create(
-        model=deployment_name,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.7
-    )
-    reply = response.choices[0].message.content
-    st.subheader("🤖 AI Response:")
-    st.write(reply)
+        response = client.chat.completions.create(
+            model=deployment_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
+        )
+        reply = response.choices[0].message.content
+        st.subheader("🤖 AI Response:")
+        st.write(reply)
 
-    # Synthesize with ElevenLabs
-    audio_stream = generate(text=reply, voice="Rachel", model="eleven_multilingual_v1")
-    play(audio_stream)
+        # Synthesize with ElevenLabs
+        st.info("🔊 Generating voice response...")
+        audio_stream = generate(text=reply, voice="Rachel", model="eleven_multilingual_v1")
+        play(audio_stream)
+        st.success("✅ Voice response generated!")
 
     # Reset the frames
     ctx.audio_processor.frames.clear()
