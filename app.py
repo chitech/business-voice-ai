@@ -11,6 +11,8 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import re
 import json
+import wave
+import numpy as np
 
 # Load environment variables
 load_dotenv()
@@ -73,8 +75,14 @@ if ctx.audio_processor and ctx.audio_processor.frames:
     st.success("Processing your voice...")
     audio_bytes = b"".join(ctx.audio_processor.frames)
 
+    # Convert raw audio bytes to proper WAV format
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-        f.write(audio_bytes)
+        # Create a proper WAV file
+        with wave.open(f.name, 'wb') as wav_file:
+            wav_file.setnchannels(1)  # Mono
+            wav_file.setsampwidth(2)  # 16-bit
+            wav_file.setframerate(16000)  # 16kHz sample rate
+            wav_file.writeframes(audio_bytes)
         audio_path = f.name
 
     # Transcribe using Azure Speech
