@@ -47,12 +47,13 @@ try:
     df = pd.DataFrame(records)
     st.success("✅ Connected to Google Sheets")
 except Exception as e:
-    st.warning("⚠️ Google Sheets not configured. Using sample data.")
+    st.warning(f"⚠️ Google Sheets not configured: {str(e)}. Using sample data.")
     # Sample data if Google Sheets is not available
     df = pd.DataFrame({
-        'Product': ['Widget A', 'Widget B', 'Widget C'],
-        'Sales': [100, 150, 200],
-        'Revenue': [1000, 1500, 2000]
+        'Product': ['Premium Widget', 'Standard Widget', 'Budget Widget'],
+        'Sales': [150, 300, 200],
+        'Revenue': [4500, 6000, 2000],
+        'Profit_Margin': [0.25, 0.20, 0.10]
     })
 
 # Audio Processor
@@ -107,6 +108,11 @@ if ctx.audio_processor and ctx.audio_processor.frames:
 
     st.subheader("🔊 You said:")
     st.write(transcript)
+    
+    # Show what data is being analyzed
+    st.subheader("📊 Data being analyzed:")
+    st.write(f"Using {'Google Sheets' if 'gcp_service_account' in st.secrets else 'sample'} data")
+    st.dataframe(df)
 
     # Generate response using Azure OpenAI with business data
     try:
@@ -115,7 +121,23 @@ if ctx.audio_processor and ctx.audio_processor.frames:
         # Fallback if tabulate is not available
         data_summary = df.to_string(index=False)
     
-    prompt = f"You are a smart voice assistant for small business owners. Here is your customer data: {data_summary}. Respond with a short voice-friendly answer first, then provide extra details after if needed. Here is the query: {transcript}"
+    # Create a more specific prompt for business analysis
+    prompt = f"""You are a smart business analyst assistant. Analyze the following business data and provide insights:
+
+Business Data:
+{data_summary}
+
+User Question: {transcript}
+
+Instructions:
+1. If the user asks about sales, revenue, products, or business performance, analyze the data and provide specific insights
+2. If the user asks about trends, compare the data points and identify patterns
+3. If the user asks for recommendations, suggest improvements based on the data
+4. If the question is not related to the business data, provide a helpful general business response
+5. Keep your response conversational and voice-friendly (under 2 sentences for the main answer)
+6. If using sample data (Widget A, B, C), mention that real business data would provide better insights
+
+Please respond:"""
     response = client.chat.completions.create(
         model=deployment_name,
         messages=[{"role": "user", "content": prompt}],
