@@ -2,7 +2,7 @@ import streamlit as st
 from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
 import tempfile
 from openai import AzureOpenAI
-from elevenlabs import generate, play, set_api_key
+import elevenlabs
 import os
 from dotenv import load_dotenv
 import azure.cognitiveservices.speech as speechsdk
@@ -18,7 +18,7 @@ import numpy as np
 load_dotenv()
 
 # Set ElevenLabs API Key
-set_api_key(st.secrets["ELEVENLABS_API_KEY"])
+elevenlabs.set_api_key(st.secrets["ELEVENLABS_API_KEY"])
 
 # Azure OpenAI config
 client = AzureOpenAI(
@@ -153,9 +153,13 @@ Please respond:"""
 
         # Synthesize with ElevenLabs
         st.info("🔊 Generating voice response...")
-        audio_stream = generate(text=reply, voice="Rachel", model="eleven_multilingual_v1")
-        play(audio_stream)
-        st.success("✅ Voice response generated!")
+        try:
+            audio_stream = elevenlabs.generate(text=reply, voice="Rachel", model="eleven_multilingual_v1")
+            elevenlabs.play(audio_stream)
+            st.success("✅ Voice response generated!")
+        except Exception as e:
+            st.error(f"❌ Voice generation failed: {str(e)}")
+            st.info("💡 You can still read the text response above.")
 
     # Reset the frames
     ctx.audio_processor.frames.clear()
