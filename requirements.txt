@@ -9,4 +9,3 @@ pyarrow
 json
 re
 tabulate
-streamlit-audio-recorder
