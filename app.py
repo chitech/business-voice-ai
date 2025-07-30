@@ -2,17 +2,16 @@ import streamlit as st
 from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
 import tempfile
 from openai import AzureOpenAI
+from elevenlabs import generate, play, set_api_key
 import os
 from dotenv import load_dotenv
 import azure.cognitiveservices.speech as speechsdk
-from elevenlabs.client import ElevenLabs
-from elevenlabs import VoiceSettings
 
 # Load environment variables
 load_dotenv()
 
 # Set ElevenLabs API Key
-voice_id = st.secrets["ELEVENLABS_VOICE_ID"]
+set_api_key(st.secrets["ELEVENLABS_API_KEY"])
 
 # Azure OpenAI config
 client = AzureOpenAI(
@@ -82,15 +81,8 @@ if ctx.audio_processor and ctx.audio_processor.frames:
     st.write(reply)
 
     # Synthesize with ElevenLabs
-    elevenlabs_client = ElevenLabs(api_key=st.secrets["ELEVENLABS_API_KEY"])
-    audio_stream = elevenlabs_client.generate(
-        text=reply,
-        voice=st.secrets["ELEVENLABS_VOICE_ID"],
-        model="eleven_multilingual_v1",
-        voice_settings=VoiceSettings(stability=0.5, similarity_boost=0.8)
-    )
-    audio_bytes = b"".join(audio_stream)
-    st.audio(audio_bytes, format="audio/mp3")
+    audio_stream = generate(text=reply, voice="Caribbean Queen", model="eleven_multilingual_v1")
+    play(audio_stream)
 
     # Reset the frames
     ctx.audio_processor.frames.clear()
