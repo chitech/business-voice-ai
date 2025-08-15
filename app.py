@@ -48,8 +48,12 @@ client = AzureOpenAI(
 # UI Layout
 st.set_page_config(page_title="Business AI Voice", layout="centered", page_icon="unieros_digital_logo.png")
 # Minimal header (centered title like mock)
+logo_uri = _to_data_uri("unieros_digital_logo.png")
 st.markdown("<div style='text-align:center'>", unsafe_allow_html=True)
-st.markdown("<h1 style='margin: 8px 0 14px 0; color:#ffffff;'>Business AI Voice</h1>", unsafe_allow_html=True)
+if logo_uri:
+    st.markdown(f"<img src='{logo_uri}' width='96' style='margin-bottom:6px;' />", unsafe_allow_html=True)
+st.markdown("<h1 style='margin: 8px 0 6px 0; color:#333333;'>Unieros Digital Voice AI for Small Business</h1>", unsafe_allow_html=True)
+st.caption("Ask by voice. Get smart answers from your data.")
 st.markdown("</div>", unsafe_allow_html=True)
 
 # Friendly styles
@@ -89,13 +93,16 @@ st.markdown(
 
     /* Icon row styling */
     .icon-row{ display:flex; align-items:center; justify-content:center; gap:40px; margin: 8px 0 14px 0; }
-    .icon-row img{ height: 44px; width: 44px; }
+    .icon-row img{ height: 32px; width: 32px; }
     .wave-svg path{ stroke:#38bdf8; }
+
+    /* Mic badge: translucent black circular background with subtle border/glow */
+    .mic-badge{ height: 40px; width: 40px; background: rgba(0,0,0,0.75); border:1px solid #0f172a; box-shadow: 0 0 12px rgba(56,189,248,0.20); border-radius:999px; display:flex; align-items:center; justify-content:center; }
 
     /* Large circular mic visual */
     .big-mic{ display:flex; align-items:center; justify-content:center; margin: 18px auto 6px auto; }
-    .big-mic .ring{ height: 96px; width: 96px; border-radius: 999px; background: radial-gradient(circle at 30% 30%, rgba(56,189,248,0.35), rgba(56,189,248,0.06)); border: 2px solid #38bdf8; display:flex; align-items:center; justify-content:center; }
-    .big-mic img{ height: 44px; width: 44px; }
+    .big-mic .ring{ height: 76px; width: 76px; border-radius: 999px; background: radial-gradient(circle at 30% 30%, rgba(56,189,248,0.35), rgba(56,189,248,0.06)); border: 2px solid #38bdf8; display:flex; align-items:center; justify-content:center; }
+    .big-mic img{ height: 32px; width: 32px; }
     
     /* Subheaders spacing */
     .stMarkdown h3, .stMarkdown h2 { margin-top: 6px; }
@@ -109,7 +116,6 @@ mic_uri = _to_data_uri("microphone.png")
 audio_uri = _to_data_uri("audio.png")
 icon_container = f"""
 <div class='icon-row'>
-  {f"<img src='{mic_uri}' alt='mic' />" if mic_uri else ''}
   <svg class='wave-svg' width='48' height='44' viewBox='0 0 120 44' fill='none' xmlns='http://www.w3.org/2000/svg'>
     <path d='M2 22 C10 22, 10 10, 18 10 S26 34, 34 34 S42 10, 50 10 S58 34, 66 34 S74 10, 82 10 S90 34, 98 34 S106 22, 114 22' stroke-width='4' stroke-linecap='round'/>
   </svg>
@@ -148,11 +154,6 @@ st.markdown('<div class="uc-card">', unsafe_allow_html=True)
 # Support older Streamlit versions without st.audio_input
 audio_bytes = None
 if hasattr(st, "audio_input"):
-    # Large circular mic visual above the recorder (decorative)
-    mic_uri2 = mic_uri or _to_data_uri("microphone.png")
-    st.markdown("<div class='big-mic'><div class='ring'>" +
-                (f"<img src='{mic_uri2}' alt='mic'/>" if mic_uri2 else "") +
-                "</div></div>", unsafe_allow_html=True)
     # Recorder control (label kept minimal)
     audio_rec = st.audio_input("Record your question and release to stop")
     if audio_rec is not None:
