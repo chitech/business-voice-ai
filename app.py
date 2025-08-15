@@ -12,6 +12,7 @@ import re
 import json
 import base64
 import io
+import requests
 
 # Load environment variables
 load_dotenv()
@@ -22,6 +23,10 @@ speech_region = st.secrets["AZURE_SPEECH_REGION"]
 openai_key = st.secrets["AZURE_OPENAI_KEY"]
 openai_endpoint = st.secrets["AZURE_OPENAI_ENDPOINT"]
 deployment_name = st.secrets["AZURE_DEPLOYMENT_NAME"]
+
+# Optional ElevenLabs
+eleven_api_key = st.secrets.get("ELEVENLABS_API_KEY")
+eleven_voice_id = st.secrets.get("ELEVENLABS_VOICE_ID")
 
 # Azure OpenAI config
 client = AzureOpenAI(
@@ -57,111 +62,57 @@ except Exception as e:
         'Profit_Margin': [0.25, 0.20, 0.10]
     })
 
-# Browser-based Speech Recognition Component
-def speech_recognition_component():
-    components.html("""
-    <div style="text-align: center; padding: 20px;">
-        <button id="startBtn" style="background-color: #4CAF50; color: white; padding: 15px 30px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; margin: 10px;">🎤 Start Voice Recognition</button>
-        <button id="stopBtn" style="background-color: #f44336; color: white; padding: 15px 30px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; margin: 10px;" disabled>⏹️ Stop</button>
-        <div id="status" style="margin: 10px; font-weight: bold; color: #666;">Click Start to begin voice recognition</div>
-        <div id="transcript" style="margin: 10px; padding: 10px; background-color: #f0f0f0; border-radius: 5px; min-height: 50px;"></div>
-    </div>
-    <script>
-        let recognition;
-        let isListening = false;
-        
-        // Check if browser supports speech recognition
-        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-            recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.lang = 'en-US';
-            
-            recognition.onstart = () => {
-                isListening = true;
-                document.getElementById('status').textContent = '🎤 Listening... Speak now!';
-                document.getElementById('status').style.color = '#4CAF50';
-                document.getElementById('startBtn').disabled = true;
-                document.getElementById('stopBtn').disabled = false;
-            };
-            
-            recognition.onresult = (event) => {
-                let finalTranscript = '';
-                let interimTranscript = '';
-                
-                for (let i = event.resultIndex; i < event.results.length; i++) {
-                    const transcript = event.results[i][0].transcript;
-                    if (event.results[i].isFinal) {
-                        finalTranscript += transcript;
-                    } else {
-                        interimTranscript += transcript;
-                    }
-                }
-                
-                document.getElementById('transcript').innerHTML = 
-                    '<strong>Final:</strong> ' + finalTranscript + '<br>' +
-                    '<em>Interim:</em> ' + interimTranscript;
-                
-                // Send final transcript to Streamlit
-                if (finalTranscript) {
-                    window.parent.postMessage({
-                        type: 'speech_result',
-                        data: finalTranscript
-                    }, '*');
-                }
-            };
-            
-            recognition.onerror = (event) => {
-                document.getElementById('status').textContent = '❌ Error: ' + event.error;
-                document.getElementById('status').style.color = '#f44336';
-                isListening = false;
-                document.getElementById('startBtn').disabled = false;
-                document.getElementById('stopBtn').disabled = true;
-            };
-            
-            recognition.onend = () => {
-                isListening = false;
-                document.getElementById('status').textContent = '✅ Recognition stopped';
-                document.getElementById('status').style.color = '#2196F3';
-                document.getElementById('startBtn').disabled = false;
-                document.getElementById('stopBtn').disabled = true;
-            };
-            
-            document.getElementById('startBtn').onclick = () => {
-                if (!isListening) {
-                    recognition.start();
-                }
-            };
-            
-            document.getElementById('stopBtn').onclick = () => {
-                if (isListening) {
-                    recognition.stop();
-                }
-            };
-        } else {
-            document.getElementById('status').textContent = '❌ Speech recognition not supported in this browser';
-            document.getElementById('status').style.color = '#f44336';
-            document.getElementById('startBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = true;
-        }
-    </script>
-    """, height=300)
+###############################################################################
+# Voice input (reliable): Streamlit mic + Azure Speech-to-Text
+###############################################################################
 
-# Display the speech recognition component
-speech_recognition_component()
+st.subheader("🎤 Ask by voice")
+# Support older Streamlit versions without st.audio_input
+audio_bytes = None
+if hasattr(st, "audio_input"):
+    audio_rec = st.audio_input("Record your question and release to stop")
+    if audio_rec is not None:
+        audio_bytes = audio_rec.getvalue()
+else:
+    uploaded = st.file_uploader("Upload a short audio clip (wav/mp3/m4a)", type=["wav", "mp3", "m4a"]) 
+    if uploaded is not None:
+        audio_bytes = uploaded.getvalue()
 
-# Handle speech results
-if 'speech_result' not in st.session_state:
-    st.session_state.speech_result = None
+###############################################################################
+# Transcription with Azure Speech (if audio provided), or text input fallback
+###############################################################################
 
 # Text input as fallback
 user_input = st.text_input("Or type your question here:", placeholder="e.g., What product sold best last quarter?")
 
-# Process speech or text input
+# Determine transcript
 transcript = None
-if st.session_state.speech_result:
-    transcript = st.session_state.speech_result
-    st.session_state.speech_result = None
+
+if audio_bytes is not None:
+    try:
+        # Save recorded audio (WAV) to a temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tf:
+            tf.write(audio_bytes)
+            wav_path = tf.name
+
+        speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
+        audio_config = speechsdk.audio.AudioConfig(filename=wav_path)
+        recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
+        st.caption("Transcribing...")
+        res = recognizer.recognize_once_async().get()
+        if res.reason == speechsdk.ResultReason.RecognizedSpeech:
+            transcript = res.text
+        elif res.reason == speechsdk.ResultReason.NoMatch:
+            st.warning("Didn't catch that. Please try again.")
+        else:
+            st.error(f"Speech recognition error: {res.reason}")
+    except Exception as e:
+        st.error(f"Audio transcription failed: {e}")
+    finally:
+        try:
+            os.remove(wav_path)
+        except Exception:
+            pass
 elif user_input:
     transcript = user_input
 
@@ -181,17 +132,60 @@ if transcript:
         reply = response.choices[0].message.content
         st.subheader("🤖 AI Response:")
         st.write(reply)
-        
-        # Synthesize with Azure Speech TTS (if available)
-        try:
-            speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
-            speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
-            synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config)
-            # Remove markdown syntax (e.g. **bold**, *italic*)
-            clean_text = re.sub(r'\*{1,2}(.+?)\*{1,2}', r'\1', reply)
-            synthesizer.speak_text_async(clean_text)
-        except Exception as e:
-            st.info("💡 Voice synthesis not available in this environment, but you can read the response above.")
+
+        # TTS provider choice
+        st.markdown("**Voice provider**")
+        tts_provider = st.radio(
+            "Choose voice engine",
+            options=["Azure", "ElevenLabs"],
+            index=0,
+            horizontal=True,
+        )
+
+        # Clean markdown for TTS
+        clean_text = re.sub(r'\*{1,2}(.+?)\*{1,2}', r'\1', reply)
+
+        if tts_provider == "ElevenLabs":
+            if not (eleven_api_key and eleven_voice_id):
+                st.warning("ElevenLabs not configured. Add ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID to secrets.")
+            else:
+                try:
+                    url = f"https://api.elevenlabs.io/v1/text-to-speech/{eleven_voice_id}"
+                    headers = {
+                        "xi-api-key": eleven_api_key,
+                        "Accept": "audio/mpeg",
+                        "Content-Type": "application/json"
+                    }
+                    payload = {
+                        "text": clean_text,
+                        "model_id": "eleven_monolingual_v1",
+                        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+                    }
+                    r = requests.post(url, headers=headers, json=payload, timeout=60)
+                    if r.status_code == 200:
+                        audio_bytes = bytes(r.content)
+                        st.audio(audio_bytes, format="audio/mp3")
+                    else:
+                        st.error(f"ElevenLabs TTS error: {r.status_code} {r.text[:200]}")
+                except Exception as e:
+                    st.error(f"ElevenLabs TTS failed: {e}")
+        else:
+            # Azure Speech TTS and play in browser
+            try:
+                speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
+                speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
+                speech_config.set_speech_synthesis_output_format(
+                    speechsdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3
+                )
+                synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
+                synth_res = synthesizer.speak_text_async(clean_text).get()
+                if synth_res.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+                    audio_bytes = bytes(synth_res.audio_data)
+                    st.audio(audio_bytes, format="audio/mp3")
+                else:
+                    st.info("Text-to-speech couldn't play. Showing text response above.")
+            except Exception:
+                st.info("💡 Voice synthesis not available in this environment; showing text response above.")
             
     except Exception as e:
         st.error(f"Error generating response: {e}")
