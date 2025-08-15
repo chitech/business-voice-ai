@@ -15,6 +15,15 @@ import io
 import requests
 from html import escape
 
+# Helper: convert local PNGs to data URIs (so they render inside HTML components)
+def _to_data_uri(png_path: str) -> str:
+    try:
+        with open(png_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("utf-8")
+        return f"data:image/png;base64,{b64}"
+    except Exception:
+        return ""
+
 # Load environment variables
 load_dotenv()
 
@@ -61,14 +70,17 @@ st.markdown(
       box-shadow: 0 2px 14px rgba(0,0,0,0.35);
       margin-top: 10px;
       margin-bottom: 8px;
+      color: #e5e7eb;
     }
+    .uc-card a { color: #93c5fd; }
+    .uc-card p, .uc-card div, .uc-card span, .uc-card li { color: #e5e7eb; }
     .uc-section-title{font-weight:600; font-size: 1.05rem; margin-bottom: 8px;}
     
     /* Buttons & radio pills */
     .stButton>button { background: linear-gradient(135deg,#4f46e5,#06b6d4); color:#fff; border:0; border-radius:10px; padding:10px 16px; }
     .stButton>button:hover {filter: brightness(1.05);}    
     [data-testid="stRadio"] label { 
-      border:1px solid #e5e7eb; border-radius:999px; padding:6px 12px; margin-right:6px; cursor:pointer;
+      border:1px solid #475569; border-radius:999px; padding:6px 12px; margin-right:6px; cursor:pointer; color:#e5e7eb;
     }
     [data-testid="stRadio"] input:checked + div { color:#0ea5e9; }
     
@@ -92,14 +104,16 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Simple icon row under title (mic, waveform, audio)
-icon_container = """
+# Simple icon row under title (mic, waveform, audio) using embedded data URIs
+mic_uri = _to_data_uri("microphone.png")
+audio_uri = _to_data_uri("audio.png")
+icon_container = f"""
 <div class='icon-row'>
-  <img src='microphone.png' alt='mic' />
+  {f"<img src='{mic_uri}' alt='mic' />" if mic_uri else ''}
   <svg class='wave-svg' width='48' height='44' viewBox='0 0 120 44' fill='none' xmlns='http://www.w3.org/2000/svg'>
     <path d='M2 22 C10 22, 10 10, 18 10 S26 34, 34 34 S42 10, 50 10 S58 34, 66 34 S74 10, 82 10 S90 34, 98 34 S106 22, 114 22' stroke-width='4' stroke-linecap='round'/>
   </svg>
-  <img src='audio.png' alt='audio' />
+  {f"<img src='{audio_uri}' alt='audio' />" if audio_uri else ''}
  </div>
 """
 components.html(icon_container, height=70)
@@ -115,9 +129,9 @@ try:
     sheet = client_gsheets.open("BusinessProducts").get_worksheet(1)
     records = sheet.get_all_records()
     df = pd.DataFrame(records)
-    st.success("✅ Connected to Google Sheets")
+    st.success("Connected to Google Sheets")
 except Exception as e:
-    st.warning(f"⚠️ Google Sheets not configured: {str(e)}. Using sample data.")
+    st.warning(f"Google Sheets not configured: {str(e)}. Using sample data.")
     # Sample data if Google Sheets is not available
     df = pd.DataFrame({
         'Product': ['Premium Widget', 'Standard Widget', 'Budget Widget'],
@@ -135,8 +149,9 @@ st.markdown('<div class="uc-card">', unsafe_allow_html=True)
 audio_bytes = None
 if hasattr(st, "audio_input"):
     # Large circular mic visual above the recorder (decorative)
+    mic_uri2 = mic_uri or _to_data_uri("microphone.png")
     st.markdown("<div class='big-mic'><div class='ring'>" +
-                (f"<img src='microphone.png' alt='mic'/>" if os.path.exists("microphone.png") else "") +
+                (f"<img src='{mic_uri2}' alt='mic'/>" if mic_uri2 else "") +
                 "</div></div>", unsafe_allow_html=True)
     # Recorder control (label kept minimal)
     audio_rec = st.audio_input("Record your question and release to stop")
@@ -215,8 +230,9 @@ if transcript and transcript.strip():
         header_col_icon, header_col_text = st.columns([0.08, 0.92])
         with header_col_icon:
             try:
-                if os.path.exists("audio.png"):
-                    st.image("audio.png", width=24)
+                audio_uri2 = audio_uri or _to_data_uri("audio.png")
+                if audio_uri2:
+                    st.markdown(f"<img src='{audio_uri2}' width='24' />", unsafe_allow_html=True)
             except Exception:
                 pass
         with header_col_text:
@@ -272,19 +288,19 @@ if transcript and transcript.strip():
                 else:
                     st.info("Text-to-speech couldn't play. Showing text response above.")
             except Exception:
-                st.info("💡 Voice synthesis not available in this environment; showing text response above.")
+                st.info("Voice synthesis not available in this environment; showing text response above.")
         st.markdown('</div>', unsafe_allow_html=True)
     except Exception as e:
         st.error("Error generating response from Azure OpenAI.")
         st.exception(e)
 
 # Display business data
-st.markdown('<div class="uc-card"><div class="uc-section-title">📊 Sample Product Data</div>', unsafe_allow_html=True)
+st.markdown('<div class="uc-card"><div class="uc-section-title">Sample Product Data</div>', unsafe_allow_html=True)
 st.dataframe(df, use_container_width=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Transparency & Privacy note
-st.markdown('<div class="uc-card"><div class="uc-section-title">🔒 Transparency & Privacy</div>', unsafe_allow_html=True)
+st.markdown('<div class="uc-card"><div class="uc-section-title">Transparency & Privacy</div>', unsafe_allow_html=True)
 st.markdown(
     "This demo processes your voice in-session to transcribe and synthesize a response. "
     "No voice recordings or personal information are stored by the app."
