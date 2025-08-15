@@ -13,6 +13,7 @@ import json
 import base64
 import io
 import requests
+from html import escape
 
 # Load environment variables
 load_dotenv()
@@ -36,14 +37,10 @@ client = AzureOpenAI(
 )
 
 # UI Layout
-st.set_page_config(page_title="Voice AI for Business", layout="centered", page_icon="unieros_digital_logo.png")
-# Centered header with logo + title
-logo_path = "unieros_digital_logo.png"
+st.set_page_config(page_title="Business AI Voice", layout="centered", page_icon="unieros_digital_logo.png")
+# Minimal header (centered title like mock)
 st.markdown("<div style='text-align:center'>", unsafe_allow_html=True)
-if os.path.exists(logo_path):
-    st.image(logo_path, width=140)
-st.markdown("<h1 style='margin: 4px 0 0 0;'>Unieros Digital Voice AI for Small Business</h1>", unsafe_allow_html=True)
-st.caption("Ask by voice. Get answers from your data.")
+st.markdown("<h1 style='margin: 8px 0 14px 0; color:#ffffff;'>Business AI Voice</h1>", unsafe_allow_html=True)
 st.markdown("</div>", unsafe_allow_html=True)
 
 # Friendly styles
@@ -52,25 +49,23 @@ st.markdown(
     <style>
     /* Global tweaks */
     .block-container {max-width: 900px !important;}
-    body {background: #FFF5E1;}
+    body {background: #0b0b12; color: #e5e7eb;}
+    h1, h2, h3, h4, h5, h6 { color: #ffffff; }
     
     /* Cards */
     .uc-card {
-      background: #ffffff;
-      border: 1px solid #eef2f7;
+      background: #1a1b23;
+      border: 1px solid #242634;
       border-radius: 14px;
       padding: 18px 18px 12px 18px;
-      box-shadow: 0 2px 12px rgba(16,24,40,0.06);
+      box-shadow: 0 2px 14px rgba(0,0,0,0.35);
       margin-top: 10px;
       margin-bottom: 8px;
     }
     .uc-section-title{font-weight:600; font-size: 1.05rem; margin-bottom: 8px;}
     
     /* Buttons & radio pills */
-    .stButton>button {
-      background: linear-gradient(135deg,#4f46e5,#06b6d4);
-      color:#fff; border:0; border-radius:10px; padding:10px 16px;
-    }
+    .stButton>button { background: linear-gradient(135deg,#4f46e5,#06b6d4); color:#fff; border:0; border-radius:10px; padding:10px 16px; }
     .stButton>button:hover {filter: brightness(1.05);}    
     [data-testid="stRadio"] label { 
       border:1px solid #e5e7eb; border-radius:999px; padding:6px 12px; margin-right:6px; cursor:pointer;
@@ -79,6 +74,16 @@ st.markdown(
     
     /* Audio */
     audio { width: 100%; outline: none; }
+
+    /* Icon row styling */
+    .icon-row{ display:flex; align-items:center; justify-content:center; gap:40px; margin: 8px 0 14px 0; }
+    .icon-row img{ height: 44px; width: 44px; }
+    .wave-svg path{ stroke:#38bdf8; }
+
+    /* Large circular mic visual */
+    .big-mic{ display:flex; align-items:center; justify-content:center; margin: 18px auto 6px auto; }
+    .big-mic .ring{ height: 96px; width: 96px; border-radius: 999px; background: radial-gradient(circle at 30% 30%, rgba(56,189,248,0.35), rgba(56,189,248,0.06)); border: 2px solid #38bdf8; display:flex; align-items:center; justify-content:center; }
+    .big-mic img{ height: 44px; width: 44px; }
     
     /* Subheaders spacing */
     .stMarkdown h3, .stMarkdown h2 { margin-top: 6px; }
@@ -86,6 +91,18 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# Simple icon row under title (mic, waveform, audio)
+icon_container = """
+<div class='icon-row'>
+  <img src='microphone.png' alt='mic' />
+  <svg class='wave-svg' width='48' height='44' viewBox='0 0 120 44' fill='none' xmlns='http://www.w3.org/2000/svg'>
+    <path d='M2 22 C10 22, 10 10, 18 10 S26 34, 34 34 S42 10, 50 10 S58 34, 66 34 S74 10, 82 10 S90 34, 98 34 S106 22, 114 22' stroke-width='4' stroke-linecap='round'/>
+  </svg>
+  <img src='audio.png' alt='audio' />
+ </div>
+"""
+components.html(icon_container, height=70)
 
 # Google Sheets setup (optional)
 try:
@@ -113,10 +130,15 @@ except Exception as e:
 # Voice input (reliable): Streamlit mic + Azure Speech-to-Text
 ###############################################################################
 
-st.markdown('<div class="uc-card"><div class="uc-section-title">🎤 Ask by voice</div>', unsafe_allow_html=True)
+st.markdown('<div class="uc-card">', unsafe_allow_html=True)
 # Support older Streamlit versions without st.audio_input
 audio_bytes = None
 if hasattr(st, "audio_input"):
+    # Large circular mic visual above the recorder (decorative)
+    st.markdown("<div class='big-mic'><div class='ring'>" +
+                (f"<img src='microphone.png' alt='mic'/>" if os.path.exists("microphone.png") else "") +
+                "</div></div>", unsafe_allow_html=True)
+    # Recorder control (label kept minimal)
     audio_rec = st.audio_input("Record your question and release to stop")
     if audio_rec is not None:
         audio_bytes = audio_rec.getvalue()
@@ -165,9 +187,9 @@ elif user_input:
     transcript = user_input
 
 if transcript and transcript.strip():
-    st.markdown('<div class="uc-card"><div class="uc-section-title">🔊 You said</div>', unsafe_allow_html=True)
-    st.write(transcript)
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Centered large question like mock
+    st.markdown("<div style='text-align:center; margin: 10px 0 6px 0;'><div style='font-size:1.25rem; color:#ffffff;'>" +
+                escape(transcript) + "</div></div>", unsafe_allow_html=True)
     
     # Generate response using Azure OpenAI with business data
     prompt = f"You are a smart voice assistant for small business owners. Here is your customer data: {df.to_markdown(index=False)}. Respond with a short voice-friendly answer first, then provide extra details after if needed. Here is the query: {transcript}"
@@ -186,13 +208,22 @@ if transcript and transcript.strip():
         if not reply.strip():
             st.error("Empty reply from model. Verify your Azure OpenAI deployment and quota.")
             st.stop()
-        st.markdown('<div class="uc-card"><div class="uc-section-title">🤖 AI Response</div>', unsafe_allow_html=True)
+        st.markdown('<div class="uc-card">', unsafe_allow_html=True)
         st.write(reply)
 
-        # TTS provider choice
-        st.markdown("**Voice provider**")
+        # TTS provider choice with custom audio icon header
+        header_col_icon, header_col_text = st.columns([0.08, 0.92])
+        with header_col_icon:
+            try:
+                if os.path.exists("audio.png"):
+                    st.image("audio.png", width=24)
+            except Exception:
+                pass
+        with header_col_text:
+            st.markdown("**Listen to response**")
+
         tts_provider = st.radio(
-            "Listen to voice response",
+            "",
             options=["Default", "UnierosVoice"],
             index=0,
             horizontal=True,
