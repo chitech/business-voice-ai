@@ -31,14 +31,61 @@ eleven_voice_id = st.secrets.get("ELEVENLABS_VOICE_ID")
 # Azure OpenAI config
 client = AzureOpenAI(
     api_key=openai_key,
-    api_version="2025-01-01-preview",
+    api_version="2024-10-21",
     azure_endpoint=openai_endpoint
 )
 
 # UI Layout
-st.set_page_config(page_title="Voice AI for Business", layout="centered")
-st.title("🧠 Unieros Digital Voice AI for Small Business")
-st.info("Use your microphone to ask a question. We'll respond with a smart answer and a realistic voice.")
+st.set_page_config(page_title="Voice AI for Business", layout="centered", page_icon="unieros_digital_logo.png")
+# Centered header with logo + title
+logo_path = "unieros_digital_logo.png"
+st.markdown("<div style='text-align:center'>", unsafe_allow_html=True)
+if os.path.exists(logo_path):
+    st.image(logo_path, width=140)
+st.markdown("<h1 style='margin: 4px 0 0 0;'>Unieros Digital Voice AI for Small Business</h1>", unsafe_allow_html=True)
+st.caption("Ask by voice. Get answers from your data.")
+st.markdown("</div>", unsafe_allow_html=True)
+
+# Friendly styles
+st.markdown(
+    """
+    <style>
+    /* Global tweaks */
+    .block-container {max-width: 900px !important;}
+    body {background: #FFF5E1;}
+    
+    /* Cards */
+    .uc-card {
+      background: #ffffff;
+      border: 1px solid #eef2f7;
+      border-radius: 14px;
+      padding: 18px 18px 12px 18px;
+      box-shadow: 0 2px 12px rgba(16,24,40,0.06);
+      margin-top: 10px;
+      margin-bottom: 8px;
+    }
+    .uc-section-title{font-weight:600; font-size: 1.05rem; margin-bottom: 8px;}
+    
+    /* Buttons & radio pills */
+    .stButton>button {
+      background: linear-gradient(135deg,#4f46e5,#06b6d4);
+      color:#fff; border:0; border-radius:10px; padding:10px 16px;
+    }
+    .stButton>button:hover {filter: brightness(1.05);}    
+    [data-testid="stRadio"] label { 
+      border:1px solid #e5e7eb; border-radius:999px; padding:6px 12px; margin-right:6px; cursor:pointer;
+    }
+    [data-testid="stRadio"] input:checked + div { color:#0ea5e9; }
+    
+    /* Audio */
+    audio { width: 100%; outline: none; }
+    
+    /* Subheaders spacing */
+    .stMarkdown h3, .stMarkdown h2 { margin-top: 6px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # Google Sheets setup (optional)
 try:
@@ -66,7 +113,7 @@ except Exception as e:
 # Voice input (reliable): Streamlit mic + Azure Speech-to-Text
 ###############################################################################
 
-st.subheader("🎤 Ask by voice")
+st.markdown('<div class="uc-card"><div class="uc-section-title">🎤 Ask by voice</div>', unsafe_allow_html=True)
 # Support older Streamlit versions without st.audio_input
 audio_bytes = None
 if hasattr(st, "audio_input"):
@@ -84,6 +131,7 @@ else:
 
 # Text input as fallback
 user_input = st.text_input("Or type your question here:", placeholder="e.g., What product sold best last quarter?")
+st.markdown('</div>', unsafe_allow_html=True)
 
 # Determine transcript
 transcript = None
@@ -116,28 +164,36 @@ if audio_bytes is not None:
 elif user_input:
     transcript = user_input
 
-if transcript:
-    st.subheader("🔊 You said:")
+if transcript and transcript.strip():
+    st.markdown('<div class="uc-card"><div class="uc-section-title">🔊 You said</div>', unsafe_allow_html=True)
     st.write(transcript)
+    st.markdown('</div>', unsafe_allow_html=True)
     
     # Generate response using Azure OpenAI with business data
     prompt = f"You are a smart voice assistant for small business owners. Here is your customer data: {df.to_markdown(index=False)}. Respond with a short voice-friendly answer first, then provide extra details after if needed. Here is the query: {transcript}"
     
     try:
-        response = client.chat.completions.create(
-            model=deployment_name,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
-        )
-        reply = response.choices[0].message.content
-        st.subheader("🤖 AI Response:")
+        with st.spinner("Thinking..."):
+            response = client.chat.completions.create(
+                model=deployment_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7
+            )
+        if not response or not response.choices:
+            st.error("No response from Azure OpenAI. Check your deployment name and keys in secrets.")
+            st.stop()
+        reply = response.choices[0].message.content or ""
+        if not reply.strip():
+            st.error("Empty reply from model. Verify your Azure OpenAI deployment and quota.")
+            st.stop()
+        st.markdown('<div class="uc-card"><div class="uc-section-title">🤖 AI Response</div>', unsafe_allow_html=True)
         st.write(reply)
 
         # TTS provider choice
         st.markdown("**Voice provider**")
         tts_provider = st.radio(
-            "Choose voice engine",
-            options=["Azure", "ElevenLabs"],
+            "Listen to voice response",
+            options=["Default", "UnierosVoice"],
             index=0,
             horizontal=True,
         )
@@ -145,7 +201,7 @@ if transcript:
         # Clean markdown for TTS
         clean_text = re.sub(r'\*{1,2}(.+?)\*{1,2}', r'\1', reply)
 
-        if tts_provider == "ElevenLabs":
+        if tts_provider == "UnierosVoice":
             if not (eleven_api_key and eleven_voice_id):
                 st.warning("ElevenLabs not configured. Add ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID to secrets.")
             else:
@@ -186,10 +242,23 @@ if transcript:
                     st.info("Text-to-speech couldn't play. Showing text response above.")
             except Exception:
                 st.info("💡 Voice synthesis not available in this environment; showing text response above.")
-            
+        st.markdown('</div>', unsafe_allow_html=True)
     except Exception as e:
-        st.error(f"Error generating response: {e}")
+        st.error("Error generating response from Azure OpenAI.")
+        st.exception(e)
 
 # Display business data
-st.subheader("📊 Sample Product Data")
-st.dataframe(df)
+st.markdown('<div class="uc-card"><div class="uc-section-title">📊 Sample Product Data</div>', unsafe_allow_html=True)
+st.dataframe(df, use_container_width=True)
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Transparency & Privacy note
+st.markdown('<div class="uc-card"><div class="uc-section-title">🔒 Transparency & Privacy</div>', unsafe_allow_html=True)
+st.markdown(
+    "This demo processes your voice in-session to transcribe and synthesize a response. "
+    "No voice recordings or personal information are stored by the app."
+)
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Footer
+st.caption("Built for small business owners by Unieros Digital — ask by voice, get answers fast.")
